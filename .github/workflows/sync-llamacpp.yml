@@ -1,0 +1,60 @@
+name: Sync llama.cpp
+
+# There's no webhook from llama.cpp (we don't own it), so we poll its latest
+# release on a schedule. When upstream has a newer release than the pinned
+# submodule, bump the submodule, push, and open a DRAFT release tagged with that
+# version. Pushing triggers Build (verifies the new llama.cpp compiles on every
+# OS); the draft is the human gate — publish it only once Build is green, which
+# then triggers Publish -> Maven Central (com.kmpile:llama-cpp-kmp:<version>).
+#
+# llama.cpp tags very frequently (often several builds a day); this polls daily
+# and only acts when the latest release differs from the pinned submodule.
+# Adjust the cron, or run manually via "Run workflow".
+on:
+  schedule:
+    - cron: "0 0 * * *" # daily 00:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write # to dispatch Build on the bump (GITHUB_TOKEN pushes don't auto-trigger it)
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Resolve current vs latest llama.cpp
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api repos/ggml-org/llama.cpp/releases/latest --jq .tag_name)
+          current=$(git -C native/cpp/llama.cpp describe --tags)
+          echo "current=$current latest=$latest"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          if [ -n "$latest" ] && [ "$latest" != "$current" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Bump submodule + open draft release
+        if: steps.v.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.v.outputs.latest }}
+        run: |
+          git -C native/cpp/llama.cpp fetch --depth 1 origin tag "$LATEST"
+          git -C native/cpp/llama.cpp checkout "$LATEST"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add native/cpp/llama.cpp
+          git commit -m "Bump llama.cpp -> $LATEST"
+          git push
+          gh workflow run build.yml --ref main
+          gh release create "$LATEST" --draft --target main \
+            --title "llama.cpp-kmp $LATEST" \
+            --notes "Auto-bumped to [llama.cpp $LATEST](https://github.com/ggml-org/llama.cpp/releases/tag/$LATEST). Wait for the **Build** run to pass, then publish this release to ship \`com.kmpile:llama-cpp-kmp:$LATEST\` to Maven Central."

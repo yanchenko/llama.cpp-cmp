@@ -1,0 +1,11 @@
+headers = llamakmp.h
+package = llamakmp
+headerFilter = llamakmp.h
+
+staticLibraries =  libllamakmp.a
+libraryPaths.ios_x64 = ../native/cpp/build-ios/Release-iphonesimulator
+libraryPaths.ios_arm64 = ../native/cpp/build-ios/Release-iphoneos
+libraryPaths.ios_simulator_arm64 = ../native/cpp/build-ios/Release-iphonesimulator
+libraryPaths.macos_arm64 = ../native/cpp/build-macos/Release
+
+linkerOpts = -ObjC -framework Accelerate -framework Metal -framework MetalKit -framework Foundation

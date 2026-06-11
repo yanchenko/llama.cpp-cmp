@@ -1,0 +1,18 @@
+[versions]
+agp = "9.1.1"
+kotlin = "2.4.0"
+vanniktech = "0.36.0"
+# Official koog from Maven Central (the :koog module adds only this + native libs).
+koog = "1.0.0"
+coroutines = "1.10.2"
+
+[libraries]
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+koog-agents = { group = "ai.koog", name = "koog-agents", version.ref = "koog" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+
+[plugins]
+androidLibrary = { id = "com.android.library", version.ref = "agp" }
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+androidKotlinMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+publish = { id = "com.vanniktech.maven.publish", version.ref = "vanniktech" }

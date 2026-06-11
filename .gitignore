@@ -1,0 +1,29 @@
+*.iml
+.gradle
+.kotlin
+
+# Vendored local Maven repo for the custom koog build used by the :koog module.
+gradle/artifact-repo/
+
+**/build/
+xcuserdata
+!src/**/build/
+local.properties
+.idea
+.DS_Store
+captures
+.externalNativeBuild
+.cxx
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+!*.xcworkspace/contents.xcworkspacedata
+**/xcshareddata/WorkspaceSettings.xcsettings
+native/cpp/install/
+native/cpp/build-ios/
+native/cpp/build-macos/
+native/cpp/build-android/
+native/cpp/cmake-build-debug/
+# Generated: JNI .so copied from :native into the published AAR
+/core/src/androidMain/jniLibs/

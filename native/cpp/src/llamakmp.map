@@ -1,0 +1,17 @@
+/* Linker version script: export only the public llama-kmp C API from the
+   shared library; hide everything else (our internals + symbols pulled in from
+   the statically-linked llama-common). */
+LLAMAKMP {
+    global:
+        init;
+        load_model;
+        set_context_params;
+        set_sampling_params;
+        complete;
+        chat;
+        cancel_generation;
+        clean_up;
+        get_model_details;
+    local:
+        *;
+};
