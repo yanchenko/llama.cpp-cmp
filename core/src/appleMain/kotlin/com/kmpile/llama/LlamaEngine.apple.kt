@@ -143,6 +143,10 @@ internal class AppleLlamaEngine(private val dispatcher: CoroutineDispatcher) : L
         clean_up(inferencePtr)
     }
 
+    // The else IS redundant in platform compiles (the cinterop enum is closed there),
+    // but compileAppleMainKotlinMetadata sees generation_event as an expect enum,
+    // which can never be exhaustive — without the else, metadata compilation fails.
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     private fun generate(
         onEvent: (GenerationEvent) -> Unit,
         operation: (StableRef<(GenerationEvent) -> Unit>, CPointer<CFunction<(CPointer<ByteVarOf<Byte>>?, generation_event, CPointer<out CPointed>?) -> Unit>>) -> Unit,
@@ -159,6 +163,7 @@ internal class AppleLlamaEngine(private val dispatcher: CoroutineDispatcher) : L
                     generation_event.TOKENIZE_ERROR -> onGen?.invoke(GenerationEvent.Error(GenerationError.Tokenize))
                     generation_event.GENERATING -> onGen?.invoke(GenerationEvent.Token(text))
                     generation_event.LOADING -> onGen?.invoke(GenerationEvent.Loading)
+                    else -> onGen?.invoke(GenerationEvent.Error(GenerationError.Unknown))
                 }
             }
         }
