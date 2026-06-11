@@ -160,3 +160,27 @@ jobs:
           MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+
+  # The sync bump is pushed with GITHUB_TOKEN, which can't trigger `push` runs,
+  # so sync dispatches this workflow instead — but GitHub excludes
+  # workflow_dispatch check suites from the commit's status-check rollup, leaving
+  # bump commits with NO icon on the commits page. Post a plain commit status
+  # (those DO roll up) so dispatched runs mark the commit green/red like a
+  # normal push run would.
+  commit-status:
+    name: Commit status (dispatched runs)
+    needs: [desktop-native, publish]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=success
+          case "${{ join(needs.*.result, ',') }}" in *failure*|*cancelled*) state=failure ;; esac
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state="$state" -f context="Publish" \
+            -f description="Snapshot build and publish (dispatched run)" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
