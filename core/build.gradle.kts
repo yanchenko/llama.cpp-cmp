@@ -183,17 +183,3 @@ val embedNativeLibs by tasks.registering(Copy::class) {
 tasks.matching { it.name == "mergeAndroidMainJniLibFolders" }.configureEach {
     dependsOn(embedNativeLibs)
 }
-
-// Optional file-based Maven repository (e.g. a local artifact-repo checkout).
-// Pass -PartifactRepoUrl=file:///path/to/maven to publish there via
-// publishAllPublicationsToArtifactRepoRepository.
-publishing {
-    repositories {
-        providers.gradleProperty("artifactRepoUrl").orNull?.let { repoUrl ->
-            maven {
-                name = "artifactRepo"
-                url = uri(repoUrl)
-            }
-        }
-    }
-}

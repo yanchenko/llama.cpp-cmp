@@ -2,10 +2,9 @@ name: Sync llama.cpp
 
 # There's no webhook from llama.cpp (we don't own it), so we poll its latest
 # release on a schedule. When upstream has a newer release than the pinned
-# submodule, bump the submodule, push, and open a DRAFT release tagged with that
-# version. Pushing triggers Build (verifies the new llama.cpp compiles on every
-# OS); the draft is the human gate — publish it only once Build is green, which
-# then triggers Publish -> Maven Central (com.kmpile:llama-cpp-kmp:<version>).
+# submodule, bump the submodule and push. Publish (snapshot to Maven Central,
+# which compiles every target) is dispatched explicitly — GITHUB_TOKEN pushes
+# don't trigger `push` workflows.
 #
 # llama.cpp tags very frequently (often several builds a day); this polls daily
 # and only acts when the latest release differs from the pinned submodule.
@@ -17,7 +16,7 @@ on:
 
 permissions:
   contents: write
-  actions: write # to dispatch Build on the bump (GITHUB_TOKEN pushes don't auto-trigger it)
+  actions: write # to dispatch Publish on the bump
 
 jobs:
   sync:
@@ -41,7 +40,7 @@ jobs:
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
-      - name: Bump submodule + open draft release
+      - name: Bump submodule, dispatch Publish
         if: steps.v.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -54,7 +53,4 @@ jobs:
           git add native/cpp/llama.cpp
           git commit -m "Bump llama.cpp -> $LATEST"
           git push
-          gh workflow run build.yml --ref main
-          gh release create "$LATEST" --draft --target main \
-            --title "llama.cpp-kmp $LATEST" \
-            --notes "Auto-bumped to [llama.cpp $LATEST](https://github.com/ggml-org/llama.cpp/releases/tag/$LATEST). Wait for the **Build** run to pass, then publish this release to ship \`com.kmpile:llama-cpp-kmp:$LATEST\` to Maven Central."
+          gh workflow run publish.yml --ref main

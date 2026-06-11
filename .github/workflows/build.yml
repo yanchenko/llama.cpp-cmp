@@ -1,9 +1,12 @@
 name: Build
 
-# Builds the JVM/desktop JNI library on each OS, verifies the wasmJs target,
-# and assembles a cross-OS desktop jar.
+# Branch/PR gate: builds the JVM/desktop JNI library on each OS, verifies the
+# wasmJs target, and assembles a cross-OS desktop jar. Not run on main — every
+# main push runs Publish, which compiles all of this anyway (a snapshot can't
+# publish without it), so running Build there would do the work twice.
 on:
   push:
+    branches-ignore: [main]
   workflow_dispatch:
 
 # Newer runs on a branch cancel any still-in-progress run on the same branch,
@@ -33,22 +36,34 @@ jobs:
           java-version: 21
           cache: gradle
       # GPU backend (Vulkan) needs the LunarG SDK for glslc; macOS uses Metal instead.
-      - name: Install Vulkan SDK (Linux)
+      # Vulkan tooling, as upstream llama.cpp's release CI: plain distro packages
+      # on Ubuntu (no LunarG apt repo), LunarG SDK installer on Windows pinned to
+      # whatever the submodule's own release.yml pins — it tracks upstream bumps
+      # by construction instead of carrying our own copy of the version.
+      - name: Install Vulkan tooling (Linux)
         if: matrix.platform == 'linux'
         run: |
-          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc >/dev/null
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
           sudo apt-get update
-          sudo apt-get install -y vulkan-sdk
+          sudo apt-get install -y glslc libvulkan-dev spirv-headers
       - name: Install Vulkan SDK (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          curl.exe -L -o "$env:RUNNER_TEMP\VulkanSDK.exe" https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe
+          $v = (Select-String -Path native/cpp/llama.cpp/.github/workflows/release.yml -Pattern 'VULKAN_VERSION:\s*([0-9.]+)').Matches[0].Groups[1].Value
+          if (-not $v) { Write-Host "::warning::VULKAN_VERSION not found in upstream release.yml, using fallback"; $v = "1.4.313.2" }
+          Write-Host "Vulkan SDK $v (upstream pin)"
+          curl.exe -L -o "$env:RUNNER_TEMP\VulkanSDK.exe" "https://sdk.lunarg.com/sdk/download/$v/windows/vulkansdk-windows-X64-$v.exe"
           & "$env:RUNNER_TEMP\VulkanSDK.exe" --accept-licenses --default-answer --confirm-command install
-          $sdk = (Get-ChildItem C:\VulkanSDK | Sort-Object Name -Descending | Select-Object -First 1).FullName
-          "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "$sdk\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$v"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$v\Bin"
+      # As upstream: warm rebuilds of unchanged llama.cpp sources come from ccache.
+      # Not on Windows — MSVC needs the LLVM toolchain for ccache (upstream's CI
+      # skips it there too).
+      - name: ccache
+        if: matrix.platform != 'windows'
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: desktop-jni-${{ matrix.platform }}
       - name: Build desktop JNI native
         run: ./gradlew :core:copyDesktopJni --console=plain
       - name: Upload per-OS native
@@ -71,7 +86,7 @@ jobs:
           java-version: 21
           cache: gradle
       - name: Build wasmJs
-        run: ./gradlew :core:wasmJsJar :koog:compileKotlinWasmJs --console=plain
+        run: ./gradlew :core:wasmJsJar --console=plain
 
   # Builds the Apple static libs and runs cinterop + the iOS Kotlin compiles that
   # publish.yml publishes (mirrors the whisper.cpp-kmp apple job).
@@ -87,7 +102,7 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: gradle
-      # Configuring the :core/:koog Android targets needs the SDK even for iOS tasks,
+      # Configuring the :core Android target needs the SDK even for iOS tasks,
       # and macOS runners ship without it.
       - uses: android-actions/setup-android@v4
       - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
@@ -97,7 +112,6 @@ jobs:
         run: >
           ./gradlew
           :core:compileKotlinIosArm64 :core:compileKotlinIosSimulatorArm64
-          :koog:compileKotlinIosArm64 :koog:compileKotlinIosSimulatorArm64
           --console=plain
 
   android:
@@ -117,8 +131,12 @@ jobs:
       # is verified in CI — this job is what catches Android-only JNI/linker regressions.
       - name: Install NDK + CMake
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358" "cmake;3.31.6"
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: android-native
       - name: Build Android native (.so for both ABIs via CMake) + Android Kotlin
-        run: ./gradlew :native:assembleRelease :core:compileAndroidMain :koog:compileAndroidMain --console=plain
+        run: ./gradlew :native:assembleRelease :core:compileAndroidMain --console=plain
 
   jvm-jar:
     name: JVM jar (all-OS natives bundled)
@@ -140,9 +158,4 @@ jobs:
           merge-multiple: true
           path: core/build/generated/jvmNativeResources/native
       - name: Bundle the JVM jar with macOS + Linux + Windows natives
-        run: ./gradlew :core:jvmJar :koog:compileKotlinJvm -PllamakmpPrebuiltNatives=true --console=plain
-      - name: Upload JVM jar
-        uses: actions/upload-artifact@v7
-        with:
-          name: llama-cpp-kmp-jvm
-          path: core/build/libs/*.jar
+        run: ./gradlew :core:jvmJar -PllamakmpPrebuiltNatives=true --console=plain

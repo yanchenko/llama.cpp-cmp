@@ -28,7 +28,12 @@ set(LLAMA_BUILD_APP OFF CACHE BOOL "" FORCE)
 set(LLAMA_OPENSSL OFF CACHE BOOL "" FORCE)
 set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
-set(GGML_CCACHE OFF CACHE BOOL "" FORCE)
+# ccache when available (CI installs it via ggml-org/ccache-action); forcing it
+# off when absent just silences ggml's "ccache not found" configure warning.
+find_program(LLAMAKMP_CCACHE_EXE ccache)
+if(NOT LLAMAKMP_CCACHE_EXE)
+    set(GGML_CCACHE OFF CACHE BOOL "" FORCE)
+endif()
 
 # GPU backend: Metal on macOS (ggml auto-enables it), Vulkan on Linux/Windows.
 # Vulkan resolves lazily against the system loader at runtime and falls back to
@@ -42,6 +47,10 @@ elseif(NOT DEFINED GGML_VULKAN)
 endif()
 
 add_subdirectory("${LLAMA_SRC}" "${CMAKE_BINARY_DIR}/llama-build")
+
+# See the comment in silence-third-party.cmake.
+include("${NATIVE_ROOT}/cmake/silence-third-party.cmake")
+llamakmp_silence_third_party_warnings("${LLAMA_SRC}")
 
 find_package(JNI REQUIRED)
 

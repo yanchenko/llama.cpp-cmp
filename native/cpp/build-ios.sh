@@ -9,6 +9,9 @@ set -e
 
 cd "$(dirname "$0")"
 
+# Third-party warning suppression lives in cmake/silence-third-party.cmake
+# (global -Wno-* flags can't win against ggml's own -Wpedantic).
+
 build_target() {
   local SDK=$1        # iphoneos | iphonesimulator | macosx
   local ARCHS=$2
@@ -44,7 +47,8 @@ build_target() {
   cmake "${args[@]}" -B "$BUILD_DIR"
 
   echo "==> Building llamakmp for $SDK"
-  cmake --build "$BUILD_DIR" --config Release --target llamakmp
+  # xcodebuild -quiet (as upstream): no per-file command echo, warnings/errors still print.
+  cmake --build "$BUILD_DIR" --config Release --target llamakmp -- -quiet
 
   echo "==> Merging static archives for $SDK"
   local OUT="$BUILD_DIR/$CONFIG"

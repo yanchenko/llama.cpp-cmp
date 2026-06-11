@@ -1,11 +1,31 @@
 name: Publish
 
+# Publishes a SNAPSHOT of main to the Central Portal snapshots repo
+# (https://central.sonatype.com/repository/maven-snapshots/) on every push, so
+# every commit is consumable without shipping anything immutable. Version =
+# <upstream llama.cpp tag>.<next binding revision>-SNAPSHOT, e.g.
+# b9592.1-SNAPSHOT — a stable coordinate consumers resolve to the newest build
+# (Gradle: cacheChangingModulesFor(0, "seconds")). The vanniktech plugin routes
+# -SNAPSHOT versions to the snapshots repo automatically.
+#
+# Immutable releases to Maven Central are DISABLED for now. To re-enable:
+# restore `release: types: [released, prereleased]` below, publish with
+# -PVERSION_NAME=<tag> on release events, and re-add a step uploading the
+# per-target jars/klibs/aar from ~/.m2 to the release page.
 on:
-  release:
-    types: [released, prereleased]
+  push:
+    branches: [main]
+  # sync-llamacpp.yml dispatches this after its bump commit: GITHUB_TOKEN
+  # pushes don't trigger `push` workflows.
+  workflow_dispatch:
+
+# Rapid pushes supersede each other's snapshot.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
-  contents: write # upload per-target artifacts to the release page
+  contents: read
 
 jobs:
   desktop-native:
@@ -27,22 +47,34 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: gradle
-      - name: Install Vulkan SDK (Linux)
+      # Vulkan tooling, as upstream llama.cpp's release CI: plain distro packages
+      # on Ubuntu (no LunarG apt repo), LunarG SDK installer on Windows pinned to
+      # whatever the submodule's own release.yml pins — it tracks upstream bumps
+      # by construction instead of carrying our own copy of the version.
+      - name: Install Vulkan tooling (Linux)
         if: matrix.platform == 'linux'
         run: |
-          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc >/dev/null
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
           sudo apt-get update
-          sudo apt-get install -y vulkan-sdk
+          sudo apt-get install -y glslc libvulkan-dev spirv-headers
       - name: Install Vulkan SDK (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          curl.exe -L -o "$env:RUNNER_TEMP\VulkanSDK.exe" https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe
+          $v = (Select-String -Path native/cpp/llama.cpp/.github/workflows/release.yml -Pattern 'VULKAN_VERSION:\s*([0-9.]+)').Matches[0].Groups[1].Value
+          if (-not $v) { Write-Host "::warning::VULKAN_VERSION not found in upstream release.yml, using fallback"; $v = "1.4.313.2" }
+          Write-Host "Vulkan SDK $v (upstream pin)"
+          curl.exe -L -o "$env:RUNNER_TEMP\VulkanSDK.exe" "https://sdk.lunarg.com/sdk/download/$v/windows/vulkansdk-windows-X64-$v.exe"
           & "$env:RUNNER_TEMP\VulkanSDK.exe" --accept-licenses --default-answer --confirm-command install
-          $sdk = (Get-ChildItem C:\VulkanSDK | Sort-Object Name -Descending | Select-Object -First 1).FullName
-          "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "$sdk\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$v"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$v\Bin"
+      # As upstream: warm rebuilds of unchanged llama.cpp sources come from ccache.
+      # Not on Windows — MSVC needs the LLVM toolchain for ccache (upstream's CI
+      # skips it there too).
+      - name: ccache
+        if: matrix.platform != 'windows'
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: desktop-jni-${{ matrix.platform }}
       - name: Build desktop JNI native
         run: ./gradlew :core:copyDesktopJni --console=plain
       - uses: actions/upload-artifact@v7
@@ -51,7 +83,7 @@ jobs:
           path: core/build/generated/jvmNativeResources/native
 
   publish:
-    name: Release build and publish
+    name: Snapshot build and publish
     needs: [desktop-native]
     runs-on: macOS-latest
     steps:
@@ -76,13 +108,45 @@ jobs:
           pattern: native-*
           merge-multiple: true
           path: core/build/generated/jvmNativeResources/native
+      # Speeds up the NDK/ninja Android native build; the Xcode-generator iOS
+      # build ignores compiler launchers and builds cold regardless.
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: publish-android
       - name: Build iOS artifacts
         run: cd native/cpp && sh build-ios.sh
-      - name: Publish to Maven Local + Central (all modules, all platforms)
+      - name: Resolve snapshot version (next binding revision on the upstream tag)
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The checkout's submodules are shallow and tag-less, so git describe
+          # can't name the pinned commit; resolve its tag from upstream's refs
+          # instead (ls-remote lists them without fetching objects).
+          sha=$(git -C native/cpp/llama.cpp rev-parse HEAD)
+          base=$(git ls-remote --tags https://github.com/ggml-org/llama.cpp.git \
+            | awk -v sha="$sha" '$1 == sha && $2 !~ /\^\{\}$/ {sub("refs/tags/","",$2); print $2}' | tail -1)
+          [ -n "$base" ] || { echo "::error::no upstream tag points at llama.cpp commit $sha"; exit 1; }
+          # If bNNNN.N releases ever ship, the snapshot moves past the highest one.
+          last=$(gh release list --limit 200 --json tagName --jq '.[].tagName' \
+            | grep -E "^${base}\.[0-9]+$" | sed "s/^${base}\.//" | sort -n | tail -1)
+          version="${base}.$(( ${last:-0} + 1 ))-SNAPSHOT"
+          echo "version=$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # Build and publish are separate steps (same runner, warm Gradle state) so
+      # compile output and publish/signing/upload output land in separate logs
+      # and a failure is attributable at a glance.
+      - name: Build all targets
         run: >
-          ./gradlew publishToMavenLocal publishToMavenCentral
+          ./gradlew assemble
           -PllamakmpPrebuiltNatives=true
-          -PVERSION_NAME=${{ github.ref_name }}
+          -PVERSION_NAME=${{ steps.ver.outputs.version }}
+      - name: Publish to Central snapshots (all modules, all platforms)
+        run: >
+          ./gradlew publishToMavenCentral
+          -PllamakmpPrebuiltNatives=true
+          -PVERSION_NAME=${{ steps.ver.outputs.version }}
           -PmavenCentralUsername=${{ secrets.MAVEN_USERNAME }}
           -PmavenCentralPassword=${{ secrets.MAVEN_PASSWORD }}
           -PsigningInMemoryKeyPassword=${{ secrets.SIGNING_PASSWORD }}
@@ -91,16 +155,3 @@ jobs:
           MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-      # Attach the per-target artifacts for BOTH :core and :koog (AAR, jvm jar,
-      # ios/macos klibs, wasm klib) to the GitHub release page.
-      - name: Attach per-target artifacts to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          dir=$(mktemp -d)
-          find ~/.m2/repository/com/kmpile -type f \( \
-            -name "*-${{ github.ref_name }}.jar" -o \
-            -name "*-${{ github.ref_name }}.klib" -o \
-            -name "*-${{ github.ref_name }}.aar" \) -exec cp {} "$dir/" \;
-          echo "Uploading:"; ls -1 "$dir"
-          gh release upload "${{ github.ref_name }}" "$dir"/* --clobber

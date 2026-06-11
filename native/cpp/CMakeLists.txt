@@ -42,6 +42,13 @@ endif ()
 # vendoring copied sources. Bumping llama.cpp = moving the submodule.
 add_subdirectory(${LLAMA_SRC} build-llama)
 
+# See the comment in silence-third-party.cmake.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/silence-third-party.cmake)
+llamakmp_silence_third_party_warnings(${LLAMA_SRC})
+if (TARGET OpenCL)
+    llamakmp_silence_third_party_warnings(${CMAKE_CURRENT_SOURCE_DIR}/OpenCL-ICD-Loader)
+endif ()
+
 if (LLAMAKMP_BUILD_APPLE)
     add_library(llamakmp STATIC ${SOURCE_DIR}/llamakmp.cpp ${SOURCE_DIR}/Inference.cpp)
 else ()

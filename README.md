@@ -8,7 +8,7 @@ A [llama.cpp](https://github.com/ggml-org/llama.cpp) binding for Kotlin Multipla
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("com.kmpile:llama-cpp-kmp:<version>")
+            implementation("com.kmpile:llama:<version>")
         }
     }
 }
@@ -46,21 +46,35 @@ drivers make it fail (Adreno) or run slower than CPU (Mali).
 
 ## Koog (optional)
 
-Use it as a [Koog](https://github.com/JetBrains/koog) LLM client. Add the integration — it pulls in `llama-cpp-kmp` automatically:
+The [Koog](https://github.com/JetBrains/koog) LLM client backed by this
+binding lives in [koog-box](https://github.com/kmpile/koog-box) as
+`:client:llama`, which depends on `com.kmpile:llama` from Maven.
+
+## Versioning &amp; releases
+
+Versions track upstream llama.cpp release tags (e.g. `b9592`); binding-only
+revisions on the same upstream append a numeric suffix (`b9592.1`), which
+Maven and Gradle order correctly: `b9592 < b9592.1 < b9593`.
+[sync-llamacpp.yml](.github/workflows/sync-llamacpp.yml) polls upstream daily
+and bumps the pinned submodule.
+
+Every push to `main` publishes a SNAPSHOT of the next version (e.g.
+`b9592.1-SNAPSHOT`) to the [Central Portal snapshots
+repo](https://central.sonatype.com/repository/maven-snapshots/) via
+[publish.yml](.github/workflows/publish.yml). Consume it with:
 
 ```kotlin
-commonMain.dependencies {
-    implementation("com.kmpile:llama-cpp-kmp-koog:<version>")
+repositories {
+    maven("https://central.sonatype.com/repository/maven-snapshots/")
+}
+configurations.all {
+    resolutionStrategy.cacheChangingModulesFor(0, "seconds")
 }
 ```
 
-then wrap a loaded `LlamaEngine`:
-
-```kotlin
-val executor = SingleLLMPromptExecutor(inference.asKoogClient())
-val model = llamaKmpModel(id = "yellow")
-// pass `executor` + `model` to a Koog AIAgent
-```
+Immutable releases to Maven Central are currently disabled — snapshots are
+the only published artifacts (see the header comment in publish.yml for how
+to re-enable releases).
 
 ## License
 

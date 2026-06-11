@@ -159,7 +159,6 @@ internal class AppleLlamaEngine(private val dispatcher: CoroutineDispatcher) : L
                     generation_event.TOKENIZE_ERROR -> onGen?.invoke(GenerationEvent.Error(GenerationError.Tokenize))
                     generation_event.GENERATING -> onGen?.invoke(GenerationEvent.Token(text))
                     generation_event.LOADING -> onGen?.invoke(GenerationEvent.Loading)
-                    else -> onGen?.invoke(GenerationEvent.Error(GenerationError.Unknown))
                 }
             }
         }

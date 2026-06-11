@@ -17,4 +17,3 @@ dependencyResolutionManagement {
 rootProject.name = "llama-cpp-kmp"
 include(":core")
 include(":native")
-include(":koog")
