@@ -77,6 +77,11 @@ jobs:
           key: desktop-jni-${{ matrix.platform }}
       - name: Build desktop JNI native
         run: ./gradlew :core:copyDesktopJni --console=plain
+      # On Windows the daemon's file locks make setup-java's post-job Gradle
+      # cache save fail (tar exit 2); stop it so the cache actually persists.
+      - name: Stop Gradle daemon (release locks for cache save)
+        if: matrix.platform == 'windows'
+        run: ./gradlew --stop
       - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.platform }}
