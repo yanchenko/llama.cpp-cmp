@@ -53,13 +53,13 @@ binding lives in [koog-box](https://github.com/kmpile/koog-box) as
 ## Versioning &amp; releases
 
 Versions track upstream llama.cpp release tags (e.g. `b9592`); binding-only
-revisions on the same upstream append a numeric suffix (`b9592.1`), which
-Maven and Gradle order correctly: `b9592 < b9592.1 < b9593`.
+revisions on the same upstream append a numeric suffix (`b9592-1`), which
+Maven and Gradle order correctly: `b9592 < b9592-1 < b9593`.
 [sync-llamacpp.yml](.github/workflows/sync-llamacpp.yml) polls upstream daily
 and bumps the pinned submodule.
 
 Every push to `main` publishes a SNAPSHOT of the next version (e.g.
-`b9592.1-SNAPSHOT`) to the [Central Portal snapshots
+`b9592-1-SNAPSHOT`) to the [Central Portal snapshots
 repo](https://central.sonatype.com/repository/maven-snapshots/) via
 [publish.yml](.github/workflows/publish.yml). Consume it with:
 

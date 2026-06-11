@@ -3,8 +3,8 @@ name: Publish
 # Publishes a SNAPSHOT of main to the Central Portal snapshots repo
 # (https://central.sonatype.com/repository/maven-snapshots/) on every push, so
 # every commit is consumable without shipping anything immutable. Version =
-# <upstream llama.cpp tag>.<next binding revision>-SNAPSHOT, e.g.
-# b9592.1-SNAPSHOT — a stable coordinate consumers resolve to the newest build
+# <upstream llama.cpp tag>-<next binding revision>-SNAPSHOT, e.g.
+# b9592-1-SNAPSHOT — a stable coordinate consumers resolve to the newest build
 # (Gradle: cacheChangingModulesFor(0, "seconds")). The vanniktech plugin routes
 # -SNAPSHOT versions to the snapshots repo automatically.
 #
@@ -133,10 +133,10 @@ jobs:
           base=$(git ls-remote --tags https://github.com/ggml-org/llama.cpp.git \
             | awk -v sha="$sha" '$1 == sha && $2 !~ /\^\{\}$/ {sub("refs/tags/","",$2); print $2}' | tail -1)
           [ -n "$base" ] || { echo "::error::no upstream tag points at llama.cpp commit $sha"; exit 1; }
-          # If bNNNN.N releases ever ship, the snapshot moves past the highest one.
+          # If bNNNN-N releases ever ship, the snapshot moves past the highest one.
           last=$(gh release list --limit 200 --json tagName --jq '.[].tagName' \
-            | grep -E "^${base}\.[0-9]+$" | sed "s/^${base}\.//" | sort -n | tail -1)
-          version="${base}.$(( ${last:-0} + 1 ))-SNAPSHOT"
+            | grep -E "^${base}-[0-9]+$" | sed "s/^${base}-//" | sort -n | tail -1)
+          version="${base}-$(( ${last:-0} + 1 ))-SNAPSHOT"
           echo "version=$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       # Build and publish are separate steps (same runner, warm Gradle state) so
