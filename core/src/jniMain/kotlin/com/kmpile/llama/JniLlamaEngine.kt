@@ -3,6 +3,7 @@ package com.kmpile.llama
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 internal class JniLlamaEngine(private val dispatcher: CoroutineDispatcher) : LlamaEngine {
@@ -67,7 +68,10 @@ internal class JniLlamaEngine(private val dispatcher: CoroutineDispatcher) : Lla
     override fun close() {
         if (closed) return
         closed = true
-        cleanUp(inferPtr)
+        // Abort any in-flight generation, then free on the (single-threaded) dispatcher so
+        // the native engine is never deleted while completion()/chat() is still running.
+        cancelGeneration(inferPtr)
+        runBlocking(dispatcher) { cleanUp(inferPtr) }
     }
 
     private fun eventCallback(onEvent: (GenerationEvent) -> Unit): Callback = object : Callback {

@@ -112,10 +112,14 @@ void Inference::set_sampling_params(const sampling_settings settings) {
     if (smpl) llama_sampler_free(smpl);
     smpl = llama_sampler_chain_init(sparams);
 
+    // Canonical llama.cpp order: truncation samplers first (top_k -> top_p -> min_p),
+    // then temperature, then the terminal distribution sampler. Applying temp before the
+    // probability-mass cuts skews top_p/min_p off a tempered distribution and diverges
+    // from llama.cpp's reference samplers.
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(settings.top_k));
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(settings.top_p, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_min_p(settings.min_p, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(settings.temp));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(settings.top_p, 1));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(settings.top_k));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 }
 

@@ -20,6 +20,7 @@ import kotlinx.cinterop.useContents
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 internal actual suspend fun platformCreateInference(
@@ -140,7 +141,10 @@ internal class AppleLlamaEngine(private val dispatcher: CoroutineDispatcher) : L
     override fun close() {
         if (closed) return
         closed = true
-        clean_up(inferencePtr)
+        // Abort any in-flight generation, then free on the (single-threaded) dispatcher so
+        // the native engine is never deleted while a complete()/chat() call is still running.
+        llamakmp.cancel_generation(inferencePtr)
+        runBlocking(dispatcher) { clean_up(inferencePtr) }
     }
 
     // The else IS redundant in platform compiles (the cinterop enum is closed there),

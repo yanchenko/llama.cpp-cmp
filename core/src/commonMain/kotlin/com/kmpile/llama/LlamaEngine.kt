@@ -57,11 +57,14 @@ internal fun llamaEventFlow(
     start: ((GenerationEvent) -> Unit) -> Unit,
     cancel: () -> Unit,
 ): Flow<GenerationEvent> = callbackFlow {
-    // Set once generation has finished (terminal event delivered or the native call
-    // returned) so awaitClose doesn't fire a stale cancel that could kill a later run.
+    // `started` gates the cancel below; `completed` is set once generation has finished
+    // (terminal event delivered or the native call returned) so awaitClose doesn't fire a
+    // stale cancel that could kill a later run.
+    val started = AtomicBoolean(false)
     val completed = AtomicBoolean(false)
     val job = launch(dispatcher) {
         try {
+            started.store(true)
             start { event ->
                 if (event is GenerationEvent.Done || event is GenerationEvent.Error) {
                     completed.store(true)
@@ -77,7 +80,10 @@ internal fun llamaEventFlow(
         }
     }
     awaitClose {
-        if (!completed.load()) cancel()
+        // Only abort a run that actually began: awaitClose also fires after normal
+        // completion and for a job cancelled before it started, and a cancel that no run
+        // consumes stays sticky on the native context and would abort its NEXT run.
+        if (started.load() && !completed.load()) cancel()
         job.cancel()
     }
 }.buffer(Channel.UNLIMITED)
