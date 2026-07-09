@@ -77,6 +77,7 @@ jobs:
           name: native-${{ matrix.platform }}
           # Upload the `native/` parent so the artifact keeps its <os>/ subfolder.
           path: core/build/generated/jvmNativeResources/native
+          retention-days: 3
 
   wasm:
     name: wasmJs

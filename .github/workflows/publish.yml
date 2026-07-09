@@ -86,6 +86,7 @@ jobs:
         with:
           name: native-${{ matrix.platform }}
           path: core/build/generated/jvmNativeResources/native
+          retention-days: 3
 
   publish:
     name: Snapshot build and publish
